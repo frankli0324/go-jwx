@@ -59,7 +59,7 @@ func (t *JsonWebSignature) authedBytes() []byte {
 	return []byte(t.rawHdr + "." + t.rawPld)
 }
 
-func (t *JsonWebSignature) Verify(jwks JsonWebKeySet) error {
+func (t *JsonWebSignature) Verify(jwks *JsonWebKeySet) error {
 	kid, err := t.header.Get("kid").String()
 	if err != nil {
 		kid = ""
