@@ -65,8 +65,9 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func ParseJWKSBytes(jwkSet []byte) (res JsonWebKeySet, err error) {
-	return res, json.Unmarshal(jwkSet, &res)
+func ParseJWKSBytes(jwkSet []byte) (res *JsonWebKeySet, err error) {
+	res = new(JsonWebKeySet)
+	return res, json.Unmarshal(jwkSet, res)
 }
 
 func decodeURLBytes(j jsontk.JSON) []byte {
