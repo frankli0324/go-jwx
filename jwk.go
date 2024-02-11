@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
-	"strings"
 
 	"github.com/frankli0324/go-jsontk"
 )
@@ -22,12 +21,12 @@ type JsonWebKey struct {
 	key any
 }
 
-func (k *JsonWebKey) Verify(jwt *JsonWebSignature) error {
-	switch k.kty {
-	case "RSA":
-		return VerifyRSA(k, jwt)
-	}
-	return errors.New("not supported kty:" + k.kty)
+// registers the sign and verify operations on different `kty`s.
+var signVerifiers = map[string]SignVerifier{}
+
+type SignVerifier interface {
+	Sign(k *JsonWebKey, input []byte) (sig []byte, err error)
+	Verify(k *JsonWebKey, input, sig []byte) error
 }
 
 // UnmarshalJSON reads a key from its JSON representation.
@@ -51,7 +50,7 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 
 	switch k.kty {
 	case "RSA":
-		n, e := decodeURLBytes(tk.Get("n")), decodeURLBytes(tk.Get("e"))
+		n, e := decodeB64URLBytes(tk.Get("n")), decodeB64URLBytes(tk.Get("e"))
 		if n == nil || e == nil {
 			return errors.New("invalid RSA jwk, missing or invalid n or e")
 		}
@@ -70,12 +69,11 @@ func ParseJWKSBytes(jwkSet []byte) (res *JsonWebKeySet, err error) {
 	return res, json.Unmarshal(jwkSet, res)
 }
 
-func decodeURLBytes(j jsontk.JSON) []byte {
+func decodeB64URLBytes(j jsontk.JSON) []byte {
 	s, err := j.String()
 	if err != nil {
 		return nil
 	}
-	s = strings.TrimRight(s, "=")
 	v, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
 		return nil

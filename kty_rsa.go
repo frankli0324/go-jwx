@@ -4,10 +4,19 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"errors"
-	"fmt"
 )
 
-func VerifyRSA(k *JsonWebKey, tk *JsonWebSignature) error {
+func init() {
+	signVerifiers["RSA"] = rsaSignVerifier{}
+}
+
+type rsaSignVerifier struct{}
+
+func (s rsaSignVerifier) Sign(k *JsonWebKey, input []byte) (sig []byte, err error) {
+	return nil, errors.ErrUnsupported
+}
+
+func (s rsaSignVerifier) Verify(k *JsonWebKey, input, sig []byte) error {
 	var hash crypto.Hash
 
 	switch k.alg {
@@ -26,15 +35,14 @@ func VerifyRSA(k *JsonWebKey, tk *JsonWebSignature) error {
 	}
 
 	hasher := hash.New()
-	hasher.Write(tk.authedBytes())
+	hasher.Write(input)
 	hashed := hasher.Sum(nil)
-	fmt.Println(hashed)
 
 	switch k.alg {
 	case "RS256", "RS384", "RS512":
-		return rsa.VerifyPKCS1v15(pubkey, hash, hashed, tk.signature)
+		return rsa.VerifyPKCS1v15(pubkey, hash, hashed, sig)
 	case "PS256", "PS384", "PS512":
-		return rsa.VerifyPSS(pubkey, hash, hashed, tk.signature, nil)
+		return rsa.VerifyPSS(pubkey, hash, hashed, sig, nil)
 	}
 
 	return errors.New("invalid alg")
