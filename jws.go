@@ -31,6 +31,14 @@ func NewJsonWebSignature(payload []byte) *JsonWebSignature {
 	return &JsonWebSignature{payload: payload}
 }
 
+func (s *JsonWebSignature) Payload() []byte {
+	return s.payload
+}
+
+func (s *JsonWebSignature) Signed() bool {
+	return len(s.signatures) != 0
+}
+
 // ParseCompact parses a compact serialized token defined in rfc7515#section-7.1
 func (s *JsonWebSignature) ParseCompact(jws string) error {
 	res := strings.SplitN(jws, ".", 3)
