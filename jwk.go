@@ -1,11 +1,7 @@
 package jwx
 
 import (
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"math/big"
 
 	"github.com/frankli0324/go-jsontk"
 )
@@ -18,13 +14,16 @@ type JsonWebKey struct {
 	kid string
 	kty string
 	alg string
+	raw jsontk.JSON
+
+	// `key` should only be used by the corresponding signVerifier for caching key objects
 	key any
 }
 
 // registers the sign and verify operations on different `kty`s.
-var signVerifiers = map[string]SignVerifier{}
+var signVerifiers = map[string]signVerifier{}
 
-type SignVerifier interface {
+type signVerifier interface {
 	Sign(k *JsonWebKey, input []byte) (sig []byte, err error)
 	Verify(k *JsonWebKey, input, sig []byte) error
 }
@@ -47,36 +46,11 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	} else {
 		k.alg = alg
 	}
-
-	switch k.kty {
-	case "RSA":
-		n, e := decodeB64URLBytes(tk.Get("n")), decodeB64URLBytes(tk.Get("e"))
-		if n == nil || e == nil {
-			return errors.New("invalid RSA jwk, missing or invalid n or e")
-		}
-		k.key = &rsa.PublicKey{
-			N: new(big.Int).SetBytes(n),
-			E: int(new(big.Int).SetBytes(e).Int64()),
-		}
-	default:
-		return errors.New("not supported kty:" + k.kty)
-	}
+	k.raw = tk
 	return nil
 }
 
 func ParseJWKSBytes(jwkSet []byte) (res *JsonWebKeySet, err error) {
 	res = new(JsonWebKeySet)
 	return res, json.Unmarshal(jwkSet, res)
-}
-
-func decodeB64URLBytes(j jsontk.JSON) []byte {
-	s, err := j.String()
-	if err != nil {
-		return nil
-	}
-	v, err := base64.RawURLEncoding.DecodeString(s)
-	if err != nil {
-		return nil
-	}
-	return v
 }
