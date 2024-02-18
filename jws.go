@@ -82,20 +82,14 @@ func (s *JsonWebSignature) Sign(header map[string]string, key *JsonWebKey) error
 	return errors.ErrUnsupported
 }
 
-func (sig *jwsSignature) verifyInner(jwk *JsonWebKey, payload []byte) error {
+func (sig *jwsSignature) encodeAuthedData(payload []byte) []byte {
 	hlen := base64.RawURLEncoding.EncodedLen(len(sig.protected.raw))
 	plen := base64.RawURLEncoding.EncodedLen(len(payload))
 	authedData := make([]byte, hlen+plen+1)
 	base64.RawURLEncoding.Encode(authedData, sig.protected.raw)
 	authedData[hlen] = '.'
 	base64.RawURLEncoding.Encode(authedData[hlen+1:], payload)
-	if sv, ok := signVerifiers[jwk.kty]; ok {
-		if err := sv.Verify(jwk, authedData, sig.signature); err != nil {
-			return err
-		}
-		return nil
-	}
-	return errors.ErrUnsupported
+	return authedData
 }
 
 func (s *JsonWebSignature) VerifyKeySingle(jwk *JsonWebKey) error {
@@ -104,8 +98,17 @@ func (s *JsonWebSignature) VerifyKeySingle(jwk *JsonWebKey) error {
 	}
 
 	for _, sig := range s.signatures {
-		if err := sig.verifyInner(jwk, s.payload); err != nil {
-			return err
+		alg, _ := sig.protected.Get("alg").String()
+		if alg == "" {
+			return fmt.Errorf("invalid JWS, alg is required on a signature")
+		}
+		authedData := sig.encodeAuthedData(s.payload)
+		if v, ok := algorithms[alg]; ok {
+			if err := v.Verify(jwk, authedData, sig.signature); err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("%w, unsupported alg in JWS: %s", errors.ErrUnsupported, alg)
 		}
 	}
 	return nil
@@ -118,6 +121,10 @@ func (s *JsonWebSignature) VerifyKeySet(jwks *JsonWebKeySet) error {
 
 	for _, sig := range s.signatures {
 		kid, _ := sig.header.Get("kid").String()
+		alg, _ := sig.protected.Get("alg").String()
+		if alg == "" {
+			return fmt.Errorf("invalid JWS, alg is required on a signature")
+		}
 		var key *JsonWebKey = nil
 		for _, jwk := range jwks.Keys {
 			if jwk.kid == kid {
@@ -129,8 +136,13 @@ func (s *JsonWebSignature) VerifyKeySet(jwks *JsonWebKeySet) error {
 			return fmt.Errorf("no jwk available, want kid:%s", kid)
 		}
 
-		if err := sig.verifyInner(key, s.payload); err != nil {
-			return err
+		authedData := sig.encodeAuthedData(s.payload)
+		if v, ok := algorithms[alg]; ok {
+			if err := v.Verify(key, authedData, sig.signature); err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("%w, unsupported alg in JWS: %s", errors.ErrUnsupported, alg)
 		}
 	}
 	return nil

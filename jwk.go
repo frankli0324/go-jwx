@@ -2,6 +2,7 @@ package jwx
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/frankli0324/go-jsontk"
 )
@@ -20,14 +21,6 @@ type JsonWebKey struct {
 	key any
 }
 
-// registers the sign and verify operations on different `kty`s.
-var signVerifiers = map[string]signVerifier{}
-
-type signVerifier interface {
-	Sign(k *JsonWebKey, input []byte) (sig []byte, err error)
-	Verify(k *JsonWebKey, input, sig []byte) error
-}
-
 // UnmarshalJSON reads a key from its JSON representation.
 func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	tk, err := jsontk.Tokenize(data)
@@ -35,17 +28,25 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 		return err
 	}
 
-	if kty, err := tk.Get("kty").String(); err != nil {
-		return err
-	} else {
-		k.kty = kty
+	k.kid, err = tk.Get("kid").String()
+	if err != nil {
+		return fmt.Errorf("unable to parse kid, err:%w", err)
+	}
+	k.kty, err = tk.Get("kty").String()
+	if err != nil {
+		return fmt.Errorf("unable to parse kty, err:%w", err)
+	}
+	k.alg, err = tk.Get("alg").String()
+	if err != nil {
+		return fmt.Errorf("unable to parse alg, err:%w", err)
 	}
 
-	if alg, err := tk.Get("alg").String(); err != nil {
+	if v, err := parseJWK(k.kty, tk); err != nil {
 		return err
 	} else {
-		k.alg = alg
+		k.key = v
 	}
+
 	k.raw = tk
 	return nil
 }
