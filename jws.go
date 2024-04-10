@@ -10,7 +10,7 @@ import (
 )
 
 type jsonComponent struct {
-	jsontk.JSON
+	*jsontk.JSON
 	raw []byte
 }
 

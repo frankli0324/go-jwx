@@ -15,7 +15,7 @@ type JsonWebKey struct {
 	kid string
 	kty string
 	alg string
-	raw jsontk.JSON
+	raw *jsontk.JSON
 
 	// `key` should only be used by the corresponding signVerifier for caching key objects
 	key any

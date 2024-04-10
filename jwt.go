@@ -8,11 +8,11 @@ import (
 )
 
 type JsonWebToken struct {
-	claims   jsontk.JSON
+	claims   *jsontk.JSON
 	envelope *JsonWebSignature
 }
 
-func (t *JsonWebToken) Header(k string) jsontk.JSON {
+func (t *JsonWebToken) Header(k string) *jsontk.JSON {
 	return t.envelope.signatures[0].header.Get(k)
 }
 
