@@ -9,8 +9,8 @@ import (
 	"github.com/frankli0324/go-jsontk"
 )
 
-var jwkParsers = map[string]func(tk jsontk.JSON) (any, error){
-	"RSA": func(tk jsontk.JSON) (any, error) {
+var jwkParsers = map[string]func(tk *jsontk.JSON) (any, error){
+	"RSA": func(tk *jsontk.JSON) (any, error) {
 		n, e := decodeB64URLBytes(tk.Get("n")), decodeB64URLBytes(tk.Get("e"))
 		if n == nil || e == nil {
 			return nil, errors.New("invalid RSA jwk, missing or invalid n or e")
@@ -22,7 +22,7 @@ var jwkParsers = map[string]func(tk jsontk.JSON) (any, error){
 	},
 }
 
-func parseJWK(kty string, tk jsontk.JSON) (any, error) {
+func parseJWK(kty string, tk *jsontk.JSON) (any, error) {
 	if p, ok := jwkParsers[kty]; ok {
 		return p(tk)
 	}

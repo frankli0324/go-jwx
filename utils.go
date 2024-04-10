@@ -6,7 +6,7 @@ import (
 	"github.com/frankli0324/go-jsontk"
 )
 
-func decodeB64URLBytes(j jsontk.JSON) []byte {
+func decodeB64URLBytes(j *jsontk.JSON) []byte {
 	str, err := j.String()
 	if err != nil {
 		return nil
