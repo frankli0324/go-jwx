@@ -2,6 +2,7 @@ package jwx
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/frankli0324/go-jsontk"
@@ -15,39 +16,56 @@ type JsonWebKey struct {
 	kid string
 	kty string
 	alg string
-	raw *jsontk.JSON
 
 	// `key` should only be used by the corresponding signVerifier for caching key objects
 	key any
 }
 
+type JsonWebKeyBuilder interface {
+	SetParam(k string, v *jsontk.Iterator) error
+	Build() (any, error)
+}
+
+var kbuilders = map[string]func() JsonWebKeyBuilder{}
+
 // UnmarshalJSON reads a key from its JSON representation.
 func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
-	tk, err := jsontk.Tokenize(data)
-	if err != nil {
+	iter := jsontk.Iterator{}
+	iter.Reset(data)
+	if err := iter.NextObject(func(key *jsontk.Token) bool {
+		s := key.String()
+		switch s {
+		case "kid":
+			k.kid = nextString(&iter, s, key)
+		case "kty":
+			k.kty = nextString(&iter, s, key)
+		case "alg":
+			k.alg = nextString(&iter, s, key)
+		default:
+			iter.Skip()
+		}
+		return iter.Error == nil
+	}); err != nil {
 		return err
 	}
-
-	k.kid, err = tk.Get("kid").String()
-	if err != nil {
-		return fmt.Errorf("unable to parse kid, err:%w", err)
+	builder, ok := kbuilders[k.kty]
+	if !ok {
+		return fmt.Errorf("%w, unsupported kty: %s", errors.ErrUnsupported, k.kty)
 	}
-	k.kty, err = tk.Get("kty").String()
-	if err != nil {
-		return fmt.Errorf("unable to parse kty, err:%w", err)
+	p := builder()
+	iter.Reset(data)
+	if err := iter.NextObject(func(key *jsontk.Token) bool {
+		s := key.String()
+		iter.Error = p.SetParam(s, &iter)
+		return iter.Error == nil
+	}); err != nil {
+		return err
 	}
-	k.alg, err = tk.Get("alg").String()
-	if err != nil {
-		return fmt.Errorf("unable to parse alg, err:%w", err)
-	}
-
-	if v, err := parseJWK(k.kty, tk); err != nil {
+	if vk, err := p.Build(); err != nil {
 		return err
 	} else {
-		k.key = v
+		k.key = vk
 	}
-
-	k.raw = tk
 	return nil
 }
 

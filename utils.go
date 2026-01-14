@@ -1,19 +1,21 @@
 package jwx
 
 import (
-	"encoding/base64"
+	"errors"
+	"strings"
 
 	"github.com/frankli0324/go-jsontk"
 )
 
-func decodeB64URLBytes(j *jsontk.JSON) []byte {
-	str, err := j.String()
-	if err != nil {
-		return nil
+func nextString(iter *jsontk.Iterator, s string, k *jsontk.Token) string {
+	if iter.NextToken(k).Type != jsontk.STRING {
+		iter.Error = errors.New("expected " + s + " to be string")
+		return ""
 	}
-	v, err := base64.RawURLEncoding.DecodeString(str)
-	if err != nil {
-		return nil
+	v, ok := k.Unquote()
+	if !ok {
+		iter.Error = errors.New("field " + s + " contains invalid string")
+		return ""
 	}
-	return v
+	return strings.Clone(v)
 }
