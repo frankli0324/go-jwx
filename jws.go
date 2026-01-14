@@ -9,15 +9,48 @@ import (
 	"github.com/frankli0324/go-jsontk"
 )
 
-type jsonComponent struct {
-	*jsontk.JSON
+// https://datatracker.ietf.org/doc/html/rfc7515#section-9.1
+type jwsHeader struct {
+	kid string
+	alg string
 	raw []byte
 }
 
+func (h *jwsHeader) Parse(data []byte, protected bool) error {
+	iter := jsontk.Iterator{}
+	iter.Reset(data)
+	return iter.NextObject(func(key *jsontk.Token) bool {
+		switch k := key.String(); k {
+		case "kid":
+			h.kid = nextString(&iter, k, key)
+		case "alg":
+			h.alg = nextString(&iter, k, key)
+		default:
+			iter.Skip()
+		}
+		return iter.Error == nil
+	})
+}
+
 type jwsSignature struct {
-	protected jsonComponent // protected header
-	header    jsonComponent // unprotected header
+	header    jwsHeader
 	signature []byte
+}
+
+func (sig *jwsSignature) Verify(jwk *JsonWebKey, payload []byte) error {
+	alg := sig.header.alg
+	if alg == "" {
+		return fmt.Errorf("invalid JWS, alg is required on a signature")
+	}
+	authedData := sig.encodeAuthedData(payload)
+	if v, ok := algorithms[alg]; ok {
+		if err := v.Verify(jwk, authedData, sig.signature); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("%w, unsupported alg in JWS: %s", errors.ErrUnsupported, alg)
+	}
+	return nil
 }
 
 // JsonWebSignature follows structure defined in full
@@ -41,7 +74,7 @@ func (s *JsonWebSignature) Signed() bool {
 
 // ParseCompact parses a compact serialized token defined in rfc7515#section-7.1
 func (s *JsonWebSignature) ParseCompact(jws string) error {
-	res := strings.SplitN(jws, ".", 3)
+	res := strings.Split(jws, ".")
 	if len(res) != 3 {
 		return errors.New("invalid jws format")
 	}
@@ -54,11 +87,10 @@ func (s *JsonWebSignature) ParseCompact(jws string) error {
 	s.signatures = []jwsSignature{{}}
 	if hdr, err := base64.RawURLEncoding.DecodeString(res[0]); err != nil {
 		return fmt.Errorf("parse jws error, decode header base64 error, err:%w", err)
-	} else if hres, err := jsontk.Tokenize(hdr); err != nil {
-		return fmt.Errorf("parse jws error, decode header json error, err:%w", err)
+	} else if err := s.signatures[0].header.Parse(hdr, true); err != nil {
+		return err
 	} else {
-		s.signatures[0].protected.raw = hdr
-		s.signatures[0].protected.JSON = hres
+		s.signatures[0].header.raw = hdr
 	}
 	if sig, err := base64.RawURLEncoding.DecodeString(res[2]); err != nil {
 		return fmt.Errorf("parse jws error, decode signature base64 error, err:%w", err)
@@ -83,10 +115,10 @@ func (s *JsonWebSignature) Sign(header map[string]string, key *JsonWebKey) error
 }
 
 func (sig *jwsSignature) encodeAuthedData(payload []byte) []byte {
-	hlen := base64.RawURLEncoding.EncodedLen(len(sig.protected.raw))
+	hlen := base64.RawURLEncoding.EncodedLen(len(sig.header.raw))
 	plen := base64.RawURLEncoding.EncodedLen(len(payload))
 	authedData := make([]byte, hlen+plen+1)
-	base64.RawURLEncoding.Encode(authedData, sig.protected.raw)
+	base64.RawURLEncoding.Encode(authedData, sig.header.raw)
 	authedData[hlen] = '.'
 	base64.RawURLEncoding.Encode(authedData[hlen+1:], payload)
 	return authedData
@@ -94,21 +126,12 @@ func (sig *jwsSignature) encodeAuthedData(payload []byte) []byte {
 
 func (s *JsonWebSignature) VerifyKeySingle(jwk *JsonWebKey) error {
 	if len(s.signatures) == 0 {
-		return errors.New("unsigned signature")
+		return errors.New("unsigned JWS")
 	}
 
 	for _, sig := range s.signatures {
-		alg, _ := sig.protected.Get("alg").String()
-		if alg == "" {
-			return fmt.Errorf("invalid JWS, alg is required on a signature")
-		}
-		authedData := sig.encodeAuthedData(s.payload)
-		if v, ok := algorithms[alg]; ok {
-			if err := v.Verify(jwk, authedData, sig.signature); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("%w, unsupported alg in JWS: %s", errors.ErrUnsupported, alg)
+		if err := sig.Verify(jwk, s.payload); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -116,33 +139,27 @@ func (s *JsonWebSignature) VerifyKeySingle(jwk *JsonWebKey) error {
 
 func (s *JsonWebSignature) VerifyKeySet(jwks *JsonWebKeySet) error {
 	if len(s.signatures) == 0 {
-		return errors.New("unsigned signature")
+		return errors.New("unsigned JWS")
 	}
 
 	for _, sig := range s.signatures {
-		kid, _ := sig.header.Get("kid").String()
-		alg, _ := sig.protected.Get("alg").String()
-		if alg == "" {
+		header := sig.header
+		if header.alg == "" {
 			return fmt.Errorf("invalid JWS, alg is required on a signature")
 		}
-		var key *JsonWebKey = nil
+		var key *JsonWebKey
 		for _, jwk := range jwks.Keys {
-			if jwk.kid == kid {
+			if jwk.kid == header.kid {
 				key = jwk
 				break
 			}
 		}
 		if key == nil {
-			return fmt.Errorf("no jwk available, want kid:%s", kid)
+			return fmt.Errorf("no JWK available, want kid:%s", header.kid)
 		}
 
-		authedData := sig.encodeAuthedData(s.payload)
-		if v, ok := algorithms[alg]; ok {
-			if err := v.Verify(key, authedData, sig.signature); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("%w, unsupported alg in JWS: %s", errors.ErrUnsupported, alg)
+		if err := sig.Verify(key, s.payload); err != nil {
+			return err
 		}
 	}
 	return nil
