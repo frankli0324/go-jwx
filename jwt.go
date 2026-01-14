@@ -24,9 +24,10 @@ func (t *JsonWebToken) Parse(tk string) (err error) {
 	return err
 }
 
-// func (t *JsonWebToken) Claims() []byte {
-// 	return t.envelope.Payload()
-// }
+// subject to removal
+func (t *JsonWebToken) RawClaims() []byte {
+	return t.envelope.Payload()
+}
 
 // func (t *JsonWebToken) verifyClaims() error {
 // 	_, err := t.claims.Get("exp").Int64()
