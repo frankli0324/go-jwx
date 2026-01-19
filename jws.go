@@ -1,6 +1,7 @@
 package jwx
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -11,20 +12,21 @@ import (
 
 // https://datatracker.ietf.org/doc/html/rfc7515#section-9.1
 type jwsHeader struct {
-	kid string
 	alg string
+	kid []byte
 	raw []byte
 }
 
 func (h *jwsHeader) Parse(data []byte, protected bool) error {
+	h.raw = data
 	iter := jsontk.Iterator{}
 	iter.Reset(data)
 	return iter.NextObject(func(key *jsontk.Token) bool {
-		switch k := key.String(); k {
-		case "kid":
-			h.kid = nextString(&iter, k, key)
+		switch k := key.UnsafeString(); k {
 		case "alg":
-			h.alg = nextString(&iter, k, key)
+			h.alg = string(nextString(&iter, k, key))
+		case "kid":
+			h.kid = bytes.Clone(nextString(&iter, k, key))
 		default:
 			iter.Skip()
 		}
@@ -33,12 +35,13 @@ func (h *jwsHeader) Parse(data []byte, protected bool) error {
 }
 
 type jwsSignature struct {
-	header    jwsHeader
+	protected jwsHeader
+
 	signature []byte
 }
 
 func (sig *jwsSignature) Verify(jwk *JsonWebKey, payload []byte) error {
-	alg := sig.header.alg
+	alg := sig.protected.alg
 	if alg == "" {
 		return fmt.Errorf("invalid JWS, alg is required on a signature")
 	}
@@ -58,10 +61,6 @@ func (sig *jwsSignature) Verify(jwk *JsonWebKey, payload []byte) error {
 type JsonWebSignature struct {
 	signatures []jwsSignature
 	payload    []byte
-}
-
-func NewJsonWebSignature(payload []byte) *JsonWebSignature {
-	return &JsonWebSignature{payload: payload}
 }
 
 func (s *JsonWebSignature) Payload() []byte {
@@ -87,10 +86,8 @@ func (s *JsonWebSignature) ParseCompact(jws string) error {
 	s.signatures = []jwsSignature{{}}
 	if hdr, err := base64.RawURLEncoding.DecodeString(res[0]); err != nil {
 		return fmt.Errorf("parse jws error, decode header base64 error, err:%w", err)
-	} else if err := s.signatures[0].header.Parse(hdr, true); err != nil {
+	} else if err := s.signatures[0].protected.Parse(hdr, true); err != nil {
 		return err
-	} else {
-		s.signatures[0].header.raw = hdr
 	}
 	if sig, err := base64.RawURLEncoding.DecodeString(res[2]); err != nil {
 		return fmt.Errorf("parse jws error, decode signature base64 error, err:%w", err)
@@ -115,16 +112,16 @@ func (s *JsonWebSignature) Sign(header map[string]string, key *JsonWebKey) error
 }
 
 func (sig *jwsSignature) encodeAuthedData(payload []byte) []byte {
-	hlen := base64.RawURLEncoding.EncodedLen(len(sig.header.raw))
+	hlen := base64.RawURLEncoding.EncodedLen(len(sig.protected.raw))
 	plen := base64.RawURLEncoding.EncodedLen(len(payload))
 	authedData := make([]byte, hlen+plen+1)
-	base64.RawURLEncoding.Encode(authedData, sig.header.raw)
+	base64.RawURLEncoding.Encode(authedData, sig.protected.raw)
 	authedData[hlen] = '.'
 	base64.RawURLEncoding.Encode(authedData[hlen+1:], payload)
 	return authedData
 }
 
-func (s *JsonWebSignature) VerifyKeySingle(jwk *JsonWebKey) error {
+func (s *JsonWebSignature) Verify(jwk *JsonWebKey) error {
 	if len(s.signatures) == 0 {
 		return errors.New("unsigned JWS")
 	}
@@ -138,24 +135,27 @@ func (s *JsonWebSignature) VerifyKeySingle(jwk *JsonWebKey) error {
 }
 
 func (s *JsonWebSignature) VerifyKeySet(jwks *JsonWebKeySet) error {
+	// read: https://datatracker.ietf.org/doc/html/rfc7515#section-6
 	if len(s.signatures) == 0 {
 		return errors.New("unsigned JWS")
 	}
 
 	for _, sig := range s.signatures {
-		header := sig.header
-		if header.alg == "" {
-			return fmt.Errorf("invalid JWS, alg is required on a signature")
-		}
+		kid := sig.protected.kid
 		var key *JsonWebKey
-		for _, jwk := range jwks.Keys {
-			if jwk.kid == header.kid {
-				key = jwk
-				break
+		if kid != nil {
+			for _, jwk := range jwks.Keys {
+				if bytes.Equal(jwk.kid, kid) {
+					key = jwk
+					break
+				}
 			}
+		} else if len(jwks.Keys) > 0 { // TODO: make key selection customizable
+			key = jwks.Keys[0]
 		}
+
 		if key == nil {
-			return fmt.Errorf("no JWK available, want kid:%s", header.kid)
+			return fmt.Errorf("no JWK available")
 		}
 
 		if err := sig.Verify(key, s.payload); err != nil {

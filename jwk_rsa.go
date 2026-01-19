@@ -13,23 +13,38 @@ func init() {
 	kbuilders["RSA"] = func() JsonWebKeyBuilder { return &rsaBuilder{} }
 }
 
-type rsaBuilder rsa.PublicKey
+type rsaBuilder rsa.PrivateKey
 
-func (b *rsaBuilder) SetParam(k string, iter *jsontk.Iterator) error {
-	if iter.Peek() != jsontk.STRING || (k != "n" && k != "e") {
-		iter.Skip()
-		return nil
+func (b *rsaBuilder) SetParam(k *jsontk.Token, iter *jsontk.Iterator) (err error) {
+	p := k.UnsafeString()
+	var num big.Int
+	switch p {
+	case "n", "e", "d", "p", "q", "dp", "dq", "qi":
+		if iter.Peek() != jsontk.STRING {
+			return errors.New("invalid format")
+		}
+		n, ok := iter.NextToken(k).UnsafeUnquote()
+		if !ok {
+			return errors.New("invalid string for field: " + p)
+		}
+		val, err := base64.RawURLEncoding.DecodeString(n)
+		if err != nil {
+			return err
+		}
+		num.SetBytes(val)
+	case "oth":
+		iter.NextArray(func(idx int) bool {
+			iter.Skip()
+			return iter.Error == nil
+		})
 	}
-	t := iter.NextToken(nil)
-	val, err := base64.RawURLEncoding.DecodeString(t.String())
-	if err != nil {
-		return err
-	}
-	switch k {
+	switch p {
 	case "n":
-		b.N = new(big.Int).SetBytes(val)
+		b.N = &num
 	case "e":
-		b.E = int(new(big.Int).SetBytes(val).Int64())
+		b.E = int(num.Int64())
+	case "d":
+		b.D = &num
 	}
 	return nil
 }
@@ -38,5 +53,6 @@ func (b *rsaBuilder) Build() (any, error) {
 	if b.N == nil || b.E == 0 {
 		return nil, errors.New("missing n or e")
 	}
-	return (*rsa.PublicKey)(b), nil
+	return (*rsa.PublicKey)(&b.PublicKey), nil
+	// TODO: private key
 }

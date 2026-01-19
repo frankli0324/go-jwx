@@ -1,6 +1,7 @@
 package jwx
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,16 +14,16 @@ type JsonWebKeySet struct {
 }
 
 type JsonWebKey struct {
-	kid string
+	kid []byte
 	kty string
-	alg string
+	alg []byte
 
-	// `key` should only be used by the corresponding signVerifier for caching key objects
+	// `key` would be used by the corresponding JsonWebAlgorithm to alg
 	key any
 }
 
 type JsonWebKeyBuilder interface {
-	SetParam(k string, v *jsontk.Iterator) error
+	SetParam(k *jsontk.Token, v *jsontk.Iterator) error
 	Build() (any, error)
 }
 
@@ -36,11 +37,11 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 		s := key.String()
 		switch s {
 		case "kid":
-			k.kid = nextString(&iter, s, key)
+			k.kid = bytes.Clone(nextString(&iter, s, key))
 		case "kty":
-			k.kty = nextString(&iter, s, key)
+			k.kty = string(nextString(&iter, s, key))
 		case "alg":
-			k.alg = nextString(&iter, s, key)
+			k.alg = bytes.Clone(nextString(&iter, s, key))
 		default:
 			iter.Skip()
 		}
@@ -55,8 +56,7 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	p := builder()
 	iter.Reset(data)
 	if err := iter.NextObject(func(key *jsontk.Token) bool {
-		s := key.String()
-		iter.Error = p.SetParam(s, &iter)
+		iter.Error = p.SetParam(key, &iter)
 		return iter.Error == nil
 	}); err != nil {
 		return err
