@@ -33,10 +33,13 @@ func (b *rsaBuilder) SetParam(k *jsontk.Token, iter *jsontk.Iterator) (err error
 		}
 		num.SetBytes(val)
 	case "oth":
-		iter.NextArray(func(idx int) bool {
+		return iter.NextArray(func(idx int) bool {
 			iter.Skip()
 			return iter.Error == nil
 		})
+	default:
+		iter.Skip()
+		return iter.Error
 	}
 	switch p {
 	case "n":

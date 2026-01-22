@@ -1,51 +1,24 @@
 package jwx
 
-import (
-	"crypto"
-	"crypto/rsa"
-	"errors"
-	"fmt"
-)
+import "errors"
 
-var algorithms = map[string]JsonWebAlgorithm{
-	"RS256": rsaAlgorithm{crypto.SHA256, rsa.VerifyPKCS1v15},
-	"PS256": rsaAlgorithm{crypto.SHA256, rsaVerifyPSSBounded},
-	"RS384": rsaAlgorithm{crypto.SHA384, rsa.VerifyPKCS1v15},
-	"PS384": rsaAlgorithm{crypto.SHA384, rsaVerifyPSSBounded},
-	"RS512": rsaAlgorithm{crypto.SHA512, rsa.VerifyPKCS1v15},
-	"PS512": rsaAlgorithm{crypto.SHA512, rsaVerifyPSSBounded},
-}
+var algorithms = map[string]JsonWebAlgorithm{}
 
-func rsaVerifyPSSBounded(pub *rsa.PublicKey, hash crypto.Hash, hashed, sig []byte) error {
-	return rsa.VerifyPSS(pub, hash, hashed, sig, nil)
-}
-
+// JsonWebAlgorithm represents an algorithm defined in https://datatracker.ietf.org/doc/html/rfc7518.
+// it's used for signing and verifying JsonWebSignatures and JsonWebEncryptions with JsonWebKeys.
 type JsonWebAlgorithm interface {
 	Verify(key *JsonWebKey, input, sig []byte) error
 	Sign(key *JsonWebKey, input []byte) ([]byte, error)
+	// Encrypt
+	// Decrypt
 }
 
-type rsaAlgorithm struct {
-	hash   crypto.Hash
-	verify func(pub *rsa.PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error
+type dummyAlgorithm struct{}
+
+func (d dummyAlgorithm) Verify(key *JsonWebKey, input, sig []byte) error {
+	return errors.ErrUnsupported
 }
 
-func (s rsaAlgorithm) Verify(key *JsonWebKey, input, sig []byte) error {
-	if key.kty != "RSA" {
-		return fmt.Errorf("invalid kty, expected RSA, got %s", key.kty)
-	}
-	hasher := s.hash.New()
-	hasher.Write(input)
-	hashed := hasher.Sum(nil)
-	if k, ok := key.key.(*rsa.PublicKey); ok {
-		return s.verify(k, s.hash, hashed, sig)
-	}
-	if k, ok := key.key.(*rsa.PrivateKey); ok {
-		return s.verify(&k.PublicKey, s.hash, hashed, sig)
-	}
-	return errors.New("invalid JWK, kty is RSA but got no rsa.PublicKey")
-}
-
-func (s rsaAlgorithm) Sign(key *JsonWebKey, input []byte) ([]byte, error) {
-	return nil, errors.ErrUnsupported
+func (d dummyAlgorithm) Sign(key *JsonWebKey, input []byte) ([]byte, error) {
+	return []byte{}, errors.ErrUnsupported
 }

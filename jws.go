@@ -134,7 +134,7 @@ func (s *JsonWebSignature) Verify(jwk *JsonWebKey) error {
 	return nil
 }
 
-func (s *JsonWebSignature) VerifyKeySet(jwks *JsonWebKeySet) error {
+func (s *JsonWebSignature) VerifyKeySet(jwks JsonWebKeySet) error {
 	// read: https://datatracker.ietf.org/doc/html/rfc7515#section-6
 	if len(s.signatures) == 0 {
 		return errors.New("unsigned JWS")
@@ -144,14 +144,14 @@ func (s *JsonWebSignature) VerifyKeySet(jwks *JsonWebKeySet) error {
 		kid := sig.protected.kid
 		var key *JsonWebKey
 		if kid != nil {
-			for _, jwk := range jwks.Keys {
+			for _, jwk := range jwks {
 				if bytes.Equal(jwk.kid, kid) {
-					key = jwk
+					key = &jwk
 					break
 				}
 			}
-		} else if len(jwks.Keys) > 0 { // TODO: make key selection customizable
-			key = jwks.Keys[0]
+		} else if len(jwks) > 0 { // TODO: make key selection customizable
+			key = &jwks[0]
 		}
 
 		if key == nil {

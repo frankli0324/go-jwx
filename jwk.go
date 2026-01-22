@@ -2,15 +2,35 @@ package jwx
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/frankli0324/go-jsontk"
 )
 
-type JsonWebKeySet struct {
-	Keys []*JsonWebKey `json:"keys"`
+type JsonWebKeySet []JsonWebKey
+
+func (ks *JsonWebKeySet) UnmarshalJSON(data []byte) error {
+	iter := jsontk.Iterator{}
+	iter.Reset(data)
+	return iter.NextObject(func(key *jsontk.Token) bool {
+		switch key.UnsafeString() {
+		case "keys":
+			*ks = make(JsonWebKeySet, 0, 10)
+			iter.NextArray(func(int) bool {
+				*ks = append(*ks, JsonWebKey{})
+				if t, s, l := iter.Skip(); t == jsontk.INVALID {
+					iter.Error = errors.New("invalid object in keys array")
+				} else {
+					iter.Error = (*ks)[len(*ks)-1].UnmarshalJSON(data[s : s+l])
+				}
+				return iter.Error == nil
+			})
+		default:
+			iter.Skip()
+		}
+		return iter.Error == nil
+	})
 }
 
 type JsonWebKey struct {
@@ -34,8 +54,7 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	iter := jsontk.Iterator{}
 	iter.Reset(data)
 	if err := iter.NextObject(func(key *jsontk.Token) bool {
-		s := key.String()
-		switch s {
+		switch s := key.UnsafeString(); s {
 		case "kid":
 			k.kid = bytes.Clone(nextString(&iter, s, key))
 		case "kty":
@@ -67,9 +86,4 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 		k.key = vk
 	}
 	return nil
-}
-
-func ParseJWKSBytes(jwkSet []byte) (res *JsonWebKeySet, err error) {
-	res = new(JsonWebKeySet)
-	return res, json.Unmarshal(jwkSet, res)
 }
