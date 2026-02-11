@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/frankli0324/go-jsontk"
 )
@@ -53,14 +54,14 @@ var kbuilders = map[string]func() JsonWebKeyBuilder{}
 func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	iter := jsontk.Iterator{}
 	iter.Reset(data)
-	if err := iter.NextObject(func(key *jsontk.Token) bool {
+	if err := iter.NextObject(func(key *jsontk.Token) (ok bool) {
 		switch s := key.UnsafeString(); s {
 		case "kid":
-			k.kid = bytes.Clone(nextString(&iter, s, key))
+			return expect(&iter, iter.NextToken(key), s, &k.kid, key.UnquoteBytes)
 		case "kty":
-			k.kty = string(nextString(&iter, s, key))
+			return expect(&iter, iter.NextToken(key), s, &k.kty, key.UnsafeUnquote)
 		case "alg":
-			k.alg = bytes.Clone(nextString(&iter, s, key))
+			return expect(&iter, iter.NextToken(key), s, &k.alg, key.UnquoteBytes)
 		default:
 			iter.Skip()
 		}
@@ -68,6 +69,9 @@ func (k *JsonWebKey) UnmarshalJSON(data []byte) (err error) {
 	}); err != nil {
 		return err
 	}
+	k.kid = bytes.Clone(k.kid)
+	k.kty = strings.Clone(k.kty)
+	k.alg = bytes.Clone(k.alg)
 	builder, ok := kbuilders[k.kty]
 	if !ok {
 		return fmt.Errorf("%w, unsupported kty: %s", errors.ErrUnsupported, k.kty)

@@ -17,16 +17,18 @@ type jwsHeader struct {
 	raw []byte
 }
 
+// Parse decodes data parameter as JWS header in json form defined in rfc7515#section-9.1
+// the data must not be modified in any way after being passed to [Parse]
 func (h *jwsHeader) Parse(data []byte, protected bool) error {
 	h.raw = data
 	iter := jsontk.Iterator{}
 	iter.Reset(data)
-	return iter.NextObject(func(key *jsontk.Token) bool {
+	return iter.NextObject(func(key *jsontk.Token) (ok bool) {
 		switch k := key.UnsafeString(); k {
 		case "alg":
-			h.alg = string(nextString(&iter, k, key))
+			return expect(&iter, iter.NextToken(key), k, &h.alg, key.UnsafeUnquote)
 		case "kid":
-			h.kid = bytes.Clone(nextString(&iter, k, key))
+			return expect(&iter, iter.NextToken(key), k, &h.kid, key.UnquoteBytes)
 		default:
 			iter.Skip()
 		}
